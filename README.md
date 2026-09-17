@@ -7,11 +7,11 @@
 <h1 align="center">⚡ NEXUS API</h1>
 
 <h3 align="center">
-  Intelligent Public API Discovery Platform
+  Intelligent Public API Discovery & Testing Platform
 </h3>
 
 <p align="center">
-  Search • Discover • Integrate • Build
+  Search • Discover • Test • Integrate • Build
 </p>
 
 <p align="center">
@@ -34,18 +34,15 @@
 
 ---
 
-# 🚀 NEXUS API
+# 🚀 About NEXUS API
 
-**NEXUS API** is an intelligent Public API Explorer built with
-**Python and Streamlit**.
+**NEXUS API** is a modern and intelligent **Public API Explorer and Testing Platform** built using **Python + Streamlit**.
 
-It transforms the large `public-apis/public-apis` GitHub catalog into a
-modern searchable dashboard.
+It converts the huge `public-apis/public-apis` GitHub catalog into an easy-to-use interactive dashboard.
 
-Instead of manually searching through thousands of API entries,
-developers can quickly discover APIs based on their project needs.
+Developers and students can discover useful APIs, search categories, inspect authentication requirements, check HTTPS/CORS support and even test public API endpoints directly inside NEXUS API.
 
-🌐 **Live App**
+🌐 **Live Application**
 
 https://nexusapipintuaryan.streamlit.app
 
@@ -53,57 +50,58 @@ https://nexusapipintuaryan.streamlit.app
 
 # 🧠 What NEXUS API Can Do
 
-NEXUS API provides a developer-friendly environment where you can:
+NEXUS API allows users to:
 
 - 🔎 Search APIs instantly
 - 📂 Explore API categories
-- 🔐 Filter APIs by authentication
+- 🔐 Check authentication requirements
 - 🔒 Check HTTPS support
 - 🌐 Check CORS availability
 - 📊 View live API statistics
-- ⚡ Fetch live GitHub catalog data
+- ⚡ Fetch live GitHub API catalog data
 - 📖 Open official API documentation
-- 🧩 Discover APIs for real-world projects
-- 🛟 Use fallback API data if GitHub becomes temporarily unavailable
+- 🧩 Discover APIs for real projects
+- 🧪 Test public GET API endpoints
+- 📄 View JSON responses
+- 🛰️ View HTTP status codes
+- 🔑 Test temporary Bearer Token authentication
+- 🛟 Use fallback data if GitHub is unavailable
 
 ---
 
-# ✨ Core Features
+# ✨ Main Features
 
-## 🔎 Intelligent Search
+## 🔎 Smart API Search
 
-Search APIs using keywords such as:
-
-```text
-weather
-python
-security
-finance
-books
-AI
-machine learning
-crypto
-automation
-```
-
-Search works across:
+Search APIs using:
 
 ```text
 API Name
-+
-Description
-+
 Category
+Description
+Technology
+Project Idea
+```
+
+Example searches:
+
+```text
+weather
+finance
+security
+books
+machine learning
+crypto
+programming
 ```
 
 ---
 
 ## 📂 Category Explorer
 
-Discover APIs from many categories including:
+NEXUS API contains many categories such as:
 
 ```text
-AI
 Animals
 Books
 Business
@@ -127,9 +125,9 @@ and many more.
 
 ---
 
-## 🔐 Authentication Detection
+# 🔐 Authentication Information
 
-NEXUS API displays authentication requirements such as:
+NEXUS API displays whether an API uses:
 
 ```text
 No Authentication
@@ -138,64 +136,132 @@ OAuth
 Custom Authentication
 ```
 
-This helps developers quickly find APIs that are easy to integrate.
+This helps developers understand an API before integrating it into a project.
 
 ---
 
-## 🔒 HTTPS Security Information
+# 🔒 HTTPS Detection
 
-Before using an API, you can check whether it supports:
+NEXUS API shows whether an API supports secure HTTPS communication.
+
+Example:
 
 ```text
-HTTPS
+HTTPS: Yes
 ```
 
-This is useful when building secure applications.
+---
+
+# 🌐 CORS Information
+
+CORS information is useful for frontend developers building browser-based applications.
+
+NEXUS API displays:
+
+```text
+CORS: Yes
+CORS: No
+CORS: Unknown
+```
+
+depending on the API.
 
 ---
 
-## 🌐 CORS Information
+# 🧪 Built-in API Tester
 
-For browser-based web applications, CORS support can be important.
+NEXUS API contains a built-in **Safe GET Request Console**.
 
-NEXUS API displays the available CORS information directly in the
-dashboard.
+Users can test public APIs without leaving the application.
+
+### API Tester Features
+
+- Test public GET endpoints
+- Add query parameters
+- Use optional Bearer Token authentication
+- View HTTP status code
+- View response content type
+- View response headers
+- Preview JSON responses
+- Preview text responses
+- Response size protection
+- Local/private network protection
 
 ---
 
-# 📊 Live Dashboard
+## 🧪 Example API Test
 
-The application automatically calculates:
+Test endpoint:
+
+```text
+https://jsonplaceholder.typicode.com/todos/1
+```
+
+Authentication:
+
+```text
+None
+```
+
+Query parameters:
+
+```json
+{}
+```
+
+Successful response:
+
+```text
+HTTP 200 OK
+```
+
+JSON response:
+
+```json
+{
+  "userId": 1,
+  "id": 1,
+  "title": "delectus aut autem",
+  "completed": false
+}
+```
+
+---
+
+# 📊 Live Dashboard Statistics
+
+NEXUS API dynamically displays:
 
 ```text
 Total APIs
 Total Categories
 HTTPS APIs
 No-Authentication APIs
-Search Results
+Current Search Results
 ```
 
-The values are generated dynamically from the loaded API catalog.
+The statistics are generated from the live API catalog.
 
 ---
 
-# 🖥️ Advanced User Interface
+# 🖥️ Advanced Interface
 
-NEXUS API includes a modern developer-focused interface.
+NEXUS API includes a futuristic developer-focused interface.
 
-### UI Highlights
+### UI Features
 
 ```text
 Dark Futuristic Theme
 Glass UI
 Gradient Effects
 Developer Terminal Panel
-Responsive Cards
-Advanced Search Area
-Two-Column API Grid
-Hover Effects
 Live Status Indicator
-Mobile Responsive Layout
+Responsive API Cards
+Two-Column Result Grid
+Advanced Filters
+Modern Buttons
+Hover Effects
+Mobile Responsive Design
 ```
 
 ---
@@ -205,12 +271,12 @@ Mobile Responsive Layout
 | Technology | Usage |
 |---|---|
 | 🐍 Python | Main programming language |
-| ⚡ Streamlit | Interactive web application |
-| 🐼 Pandas | Data processing |
-| 🌐 Requests | Fetch GitHub API catalog |
+| ⚡ Streamlit | Web application |
+| 🐼 Pandas | Data filtering and processing |
+| 🌐 Requests | API and GitHub requests |
 | 🎨 HTML | Custom UI structure |
-| 💅 CSS | Advanced visual design |
-| 🐙 GitHub | Source code and API data |
+| 💅 CSS | Advanced styling |
+| 🐙 GitHub | Source code and API catalog |
 | ☁️ Streamlit Cloud | Live deployment |
 
 ---
@@ -218,31 +284,37 @@ Mobile Responsive Layout
 # 🏗️ Application Architecture
 
 ```text
-              GitHub
-                │
-                ▼
-      public-apis/public-apis
-                │
-                ▼
-          Requests Library
-                │
-                ▼
+             GitHub
+               │
+               ▼
+    public-apis/public-apis
+               │
+               ▼
+        Requests Library
+               │
+               ▼
           README Parser
-                │
-                ▼
-             Pandas
-                │
-        ┌───────┴────────┐
-        │                │
-        ▼                ▼
-     Search           Filters
-        │                │
-        └───────┬────────┘
-                ▼
-           Streamlit UI
-                │
-                ▼
-            NEXUS API
+               │
+               ▼
+            Pandas
+               │
+      ┌────────┴────────┐
+      │                 │
+      ▼                 ▼
+   Search             Filters
+      │                 │
+      └────────┬────────┘
+               ▼
+          Streamlit UI
+               │
+     ┌─────────┴─────────┐
+     │                   │
+     ▼                   ▼
+API Explorer        API Tester
+     │                   │
+     └─────────┬─────────┘
+               ▼
+           NEXUS API
 ```
 
 ---
@@ -253,15 +325,11 @@ Mobile Responsive Layout
 nexus-api-explorer/
 │
 ├── app.py
-│
 ├── README.md
-│
 ├── requirements.txt
-│
 ├── .gitignore
 │
 └── assets/
-    │
     └── nexus-api-banner.png
 ```
 
@@ -269,13 +337,13 @@ nexus-api-explorer/
 
 # ⚙️ Installation
 
-## Step 1 — Clone Repository
+## 1️⃣ Clone Repository
 
 ```bash
 git clone https://github.com/pintuaryan8973-source/nexus-api-explorer.git
 ```
 
-Enter project folder:
+Enter the project directory:
 
 ```bash
 cd nexus-api-explorer
@@ -283,7 +351,7 @@ cd nexus-api-explorer
 
 ---
 
-## Step 2 — Create Virtual Environment
+## 2️⃣ Create Virtual Environment
 
 ```bash
 python -m venv .venv
@@ -291,7 +359,7 @@ python -m venv .venv
 
 ---
 
-## Step 3 — Install Dependencies
+## 3️⃣ Install Dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -299,13 +367,13 @@ pip install -r requirements.txt
 
 ---
 
-## Step 4 — Run Application
+## 4️⃣ Run NEXUS API
 
 ```bash
 streamlit run app.py
 ```
 
-The app will normally open on:
+The application will normally open at:
 
 ```text
 http://localhost:8501
@@ -313,21 +381,21 @@ http://localhost:8501
 
 ---
 
-# 🪟 Windows PowerShell
+# 🪟 Windows PowerShell Setup
 
-If PowerShell does not allow virtual environment activation, run:
+If PowerShell does not allow virtual environment activation:
 
 ```powershell
 python -m venv .venv
 ```
 
-Then:
+Install dependencies:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Then:
+Run the application:
 
 ```powershell
 .\.venv\Scripts\python.exe -m streamlit run app.py
@@ -339,11 +407,11 @@ Then:
 
 NEXUS API is deployed using **Streamlit Community Cloud**.
 
-### Live Application
+### 🚀 Live App
 
-🚀 https://nexusapipintuaryan.streamlit.app
+https://nexusapipintuaryan.streamlit.app
 
-Deployment configuration:
+### Deployment Configuration
 
 ```text
 Repository:
@@ -358,9 +426,9 @@ app.py
 
 ---
 
-# 🔄 Automatic Updates
+# 🔄 Automatic Deployment Updates
 
-Because the application is connected with GitHub:
+The project follows this workflow:
 
 ```text
 VS Code
@@ -381,7 +449,7 @@ Streamlit Cloud
 Updated Live App
 ```
 
-So future changes can be published by running:
+Whenever code changes are ready:
 
 ```powershell
 git add .
@@ -389,34 +457,34 @@ git commit -m "Update NEXUS API"
 git push
 ```
 
-Streamlit will detect the GitHub update and redeploy the application.
+Streamlit Cloud can then redeploy the latest GitHub version.
 
 ---
 
-# 💡 Project Ideas Using NEXUS API
+# 💡 Projects You Can Build
 
-Developers can discover APIs for projects like:
+NEXUS API can help discover APIs for:
 
 ```text
 Weather Application
-Crypto Dashboard
+Crypto Price Tracker
 AI Assistant
-News Application
-Book Finder
-Job Search Platform
 Finance Dashboard
 Cybersecurity Tool
+Book Finder
 Movie Application
+News Website
 Sports Dashboard
+Job Search Platform
 Automation System
-Machine Learning Application
+Machine Learning Project
 Student Projects
 Portfolio Projects
 ```
 
 ---
 
-# 🧪 Example API Searches
+# 🧪 Example Search Ideas
 
 ### Weather
 
@@ -430,16 +498,22 @@ weather
 security
 ```
 
+### Finance
+
+```text
+finance
+```
+
 ### Artificial Intelligence
 
 ```text
 AI
 ```
 
-### Finance
+### Books
 
 ```text
-finance
+books
 ```
 
 ### Programming
@@ -450,70 +524,103 @@ programming
 
 ---
 
+# 🌟 Why NEXUS API?
+
+Normally developers need to:
+
+```text
+Search Google
+↓
+Find API website
+↓
+Read documentation
+↓
+Check authentication
+↓
+Check HTTPS
+↓
+Test endpoint
+```
+
+NEXUS API simplifies this workflow:
+
+```text
+Search
++
+Explore
++
+Filter
++
+Inspect
++
+Test
+```
+
+inside one platform.
+
+---
+
 # 🧠 Future Intelligence Features
 
-NEXUS API can be upgraded further with intelligent features.
+Future versions of NEXUS API can include:
 
 ## 🤖 AI API Recommendation Engine
 
-User could type:
+A user could write:
 
 ```text
 I want to build a weather application
 ```
 
-and NEXUS API could automatically recommend suitable APIs.
+and NEXUS API could recommend suitable APIs automatically.
 
 ---
 
 ## 💬 AI Assistant
 
-Future versions can include an AI assistant where users ask:
+Users could ask:
 
 ```text
 Which API should I use for cryptocurrency prices?
 ```
 
-and the assistant recommends APIs from the catalog.
+and NEXUS API could suggest relevant APIs.
 
 ---
 
-## 🧪 Built-in API Tester
+## 🧪 Advanced API Testing
 
-Future version could allow users to test API endpoints directly inside
-NEXUS API.
-
-Example:
+Future API Tester upgrades can support:
 
 ```text
 GET
-https://api.example.com/data
+POST
+PUT
+PATCH
+DELETE
 ```
 
-and display the JSON response.
+along with:
+
+```text
+Request Headers
+JSON Body
+Authentication
+Response Timing
+Response Size
+```
 
 ---
 
-## 📄 JSON Viewer
+## 📄 Advanced JSON Viewer
 
-API responses could be displayed in a formatted JSON viewer.
-
-Example:
-
-```json
-{
-  "status": "success",
-  "data": {
-    "example": true
-  }
-}
-```
+API responses can be displayed in a formatted expandable JSON viewer.
 
 ---
 
 ## ⭐ Favorite APIs
 
-Users could save useful APIs into their own collection.
+Users could save useful APIs into personal collections.
 
 Example:
 
@@ -530,24 +637,24 @@ My APIs
 
 ## 📊 API Analytics
 
-Future versions could display:
+Future versions could include:
 
 ```text
-Popular APIs
-Most Used Categories
+Most Popular Categories
 Authentication Distribution
 HTTPS Percentage
-API Category Statistics
+API Statistics
+API Response Performance
 ```
 
 ---
 
-# 🗺️ Future Roadmap
+# 🗺️ Project Roadmap
 
 ```text
 ✅ Public API Explorer
 ✅ Search System
-✅ Category Filter
+✅ Category Filters
 ✅ Authentication Filter
 ✅ HTTPS Detection
 ✅ CORS Information
@@ -555,17 +662,21 @@ API Category Statistics
 ✅ Advanced UI
 ✅ GitHub Repository
 ✅ Streamlit Deployment
+✅ Built-in GET API Tester
+✅ JSON Response Viewer
+✅ Bearer Token Testing
 
+⬜ POST Requests
+⬜ PUT Requests
+⬜ PATCH Requests
+⬜ DELETE Requests
 ⬜ AI API Recommendations
 ⬜ AI Assistant
-⬜ API Testing Console
-⬜ JSON Response Viewer
 ⬜ Favorite APIs
 ⬜ Saved Collections
 ⬜ User Accounts
 ⬜ API Analytics
 ⬜ API Key Manager
-⬜ Advanced Search
 ```
 
 ---
@@ -580,17 +691,17 @@ public-apis/public-apis
 
 GitHub repository.
 
-The individual APIs belong to their respective owners and providers.
+Individual APIs and services belong to their respective providers.
 
 ---
 
 # 🔗 Important Links
 
-### 🚀 Live Application
+## 🚀 Live Application
 
 https://nexusapipintuaryan.streamlit.app
 
-### 🐙 GitHub Repository
+## 🐙 GitHub Repository
 
 https://github.com/pintuaryan8973-source/nexus-api-explorer
 
@@ -600,7 +711,7 @@ https://github.com/pintuaryan8973-source/nexus-api-explorer
 
 Contributions are welcome.
 
-Typical contribution workflow:
+Contribution workflow:
 
 ```text
 Fork Repository
@@ -618,13 +729,13 @@ Open Pull Request
 
 ---
 
-# ⭐ Support
+# ⭐ Support NEXUS API
 
-If you find NEXUS API useful, consider giving the repository a:
+If you find this project useful, consider giving the repository a:
 
 ## ⭐ GitHub Star
 
-It helps the project grow and motivates future improvements.
+It helps support future improvements.
 
 ---
 
@@ -633,7 +744,11 @@ It helps the project grow and motivates future improvements.
 </p>
 
 <p align="center">
-  Discover Faster • Build Smarter • Ship More
+  Search • Discover • Test • Build
+</p>
+
+<p align="center">
+  <b>Discover Faster • Build Smarter • Ship More</b>
 </p>
 
 <p align="center">

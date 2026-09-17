@@ -3,6 +3,7 @@ import json
 import socket
 import time
 import ipaddress
+import hashlib
 from collections import Counter
 from html import escape
 from urllib.parse import urlparse
@@ -260,6 +261,106 @@ def recommend_apis(data: pd.DataFrame, idea: str, beginner_mode=True, top_n=8):
     )
 
 df, live = load_catalog()
+
+
+# =========================================================
+# FAVORITES + SAVED COLLECTIONS
+# =========================================================
+if "favorites" not in st.session_state:
+    st.session_state.favorites = {}
+
+if "collections" not in st.session_state:
+    st.session_state.collections = {}
+
+
+def stable_id(value: str) -> str:
+    return hashlib.sha1(str(value).encode("utf-8")).hexdigest()[:12]
+
+
+def api_to_record(row) -> dict:
+    return {
+        "Category": str(row.get("Category", "")),
+        "API": str(row.get("API", "")),
+        "Description": str(row.get("Description", "")),
+        "Auth": str(row.get("Auth", "")),
+        "HTTPS": str(row.get("HTTPS", "")),
+        "CORS": str(row.get("CORS", "")),
+        "Link": str(row.get("Link", "")),
+    }
+
+
+def add_favorite(row):
+    record = api_to_record(row)
+    if record["Link"]:
+        st.session_state.favorites[record["Link"]] = record
+
+
+def remove_favorite(link: str):
+    st.session_state.favorites.pop(link, None)
+
+
+def add_to_collection(collection_name: str, record: dict):
+    name = collection_name.strip()
+    if not name:
+        return False
+
+    if name not in st.session_state.collections:
+        st.session_state.collections[name] = {}
+
+    link = str(record.get("Link", "")).strip()
+    if not link:
+        return False
+
+    st.session_state.collections[name][link] = record
+    return True
+
+
+def remove_from_collection(collection_name: str, link: str):
+    items = st.session_state.collections.get(collection_name, {})
+    items.pop(link, None)
+
+
+def build_library_export() -> str:
+    payload = {
+        "version": 1,
+        "favorites": list(st.session_state.favorites.values()),
+        "collections": {
+            name: list(items.values())
+            for name, items in st.session_state.collections.items()
+        },
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+def import_library_payload(payload: dict):
+    imported_favorites = {}
+    imported_collections = {}
+
+    for item in payload.get("favorites", []):
+        if isinstance(item, dict) and item.get("Link"):
+            record = api_to_record(item)
+            imported_favorites[record["Link"]] = record
+
+    collections = payload.get("collections", {})
+    if isinstance(collections, dict):
+        for name, items in collections.items():
+            clean_name = str(name).strip()
+            if not clean_name or not isinstance(items, list):
+                continue
+
+            imported_collections[clean_name] = {}
+            for item in items:
+                if isinstance(item, dict) and item.get("Link"):
+                    record = api_to_record(item)
+                    imported_collections[clean_name][record["Link"]] = record
+
+    st.session_state.favorites.update(imported_favorites)
+
+    for name, items in imported_collections.items():
+        if name not in st.session_state.collections:
+            st.session_state.collections[name] = {}
+        st.session_state.collections[name].update(items)
+
 
 
 # =========================================================
@@ -1128,7 +1229,7 @@ f1, f2, f3, f4 = st.columns(4)
 
 feature_data = [
     ("01", "Idea Recommender", "Describe a project idea and get ranked API recommendations."),
-    ("02", "Smart Filters", "Narrow results using category and authentication requirements."),
+    ("02", "Saved Collections", "Favorite useful APIs and organize them into named collections."),
     ("03", "Security Signals", "See HTTPS and CORS support before opening the docs."),
     ("04", "API Tester", "Send GET, POST, PUT, PATCH and DELETE requests safely."),
 ]
@@ -1242,11 +1343,27 @@ if st.button("⚡ Find Best APIs", use_container_width=True, type="primary"):
                     unsafe_allow_html=True,
                 )
 
-                st.link_button(
-                    f"Open {row['API']} documentation ↗",
-                    str(row["Link"]),
-                    use_container_width=True,
-                )
+                rec_open, rec_save = st.columns([2.3, 1])
+
+                with rec_open:
+                    st.link_button(
+                        f"Open {row['API']} documentation ↗",
+                        str(row["Link"]),
+                        use_container_width=True,
+                    )
+
+                with rec_save:
+                    rec_key = stable_id(str(row["Link"]))
+                    already_saved = str(row["Link"]) in st.session_state.favorites
+                    if st.button(
+                        "★ Saved" if already_saved else "☆ Save",
+                        key=f"rec_save_{rec_key}_{i}",
+                        use_container_width=True,
+                        disabled=already_saved,
+                    ):
+                        add_favorite(row)
+                        st.toast(f"{row['API']} added to Favorites.")
+                        st.rerun()
 
 # =========================================================
 # ADVANCED BUILT-IN API TESTER
@@ -1564,11 +1681,244 @@ else:
                     unsafe_allow_html=True,
                 )
 
+                result_open, result_save = st.columns([2.3, 1])
+
+                with result_open:
+                    st.link_button(
+                        f"Open {row['API']} ↗",
+                        str(row["Link"]),
+                        use_container_width=True,
+                    )
+
+                with result_save:
+                    result_key = stable_id(str(row["Link"]))
+                    already_saved = str(row["Link"]) in st.session_state.favorites
+                    if st.button(
+                        "★ Saved" if already_saved else "☆ Save",
+                        key=f"result_save_{result_key}_{idx}",
+                        use_container_width=True,
+                        disabled=already_saved,
+                    ):
+                        add_favorite(row)
+                        st.toast(f"{row['API']} added to Favorites.")
+                        st.rerun()
+
+
+
+# =========================================================
+# MY API LIBRARY — FAVORITES + COLLECTIONS
+# =========================================================
+st.markdown(
+    """
+<div class="section-head">
+  <div>
+    <div class="section-title">⭐ My API Library</div>
+    <div class="section-sub">Save useful APIs, organize collections, and export/import your library.</div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <div class="ai-box">
+        <div class="ai-title">Favorites & Collections</div>
+        <div class="ai-text">
+            Favorites are kept in your current Streamlit session. Use <b>Export Library</b>
+            to save them permanently as JSON, then import that file later on any device/session.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+lib1, lib2, lib3 = st.columns(3)
+lib1.metric("Favorites", len(st.session_state.favorites))
+lib2.metric("Collections", len(st.session_state.collections))
+lib3.metric(
+    "Saved in collections",
+    sum(len(items) for items in st.session_state.collections.values()),
+)
+
+create_col, export_col = st.columns([1.6, 1])
+
+with create_col:
+    new_collection_name = st.text_input(
+        "Create a collection",
+        placeholder="Example: Weather Project APIs",
+        key="new_collection_name",
+    )
+    if st.button("＋ Create Collection", use_container_width=True, key="create_collection"):
+        clean_name = new_collection_name.strip()
+        if not clean_name:
+            st.warning("Enter a collection name.")
+        elif clean_name in st.session_state.collections:
+            st.info("That collection already exists.")
+        else:
+            st.session_state.collections[clean_name] = {}
+            st.toast(f'Collection "{clean_name}" created.')
+            st.rerun()
+
+with export_col:
+    st.write("")
+    st.download_button(
+        "⬇ Export Library JSON",
+        data=build_library_export(),
+        file_name="nexus_api_library.json",
+        mime="application/json",
+        use_container_width=True,
+        key="export_library",
+    )
+
+import_file = st.file_uploader(
+    "Import a previously exported NEXUS library",
+    type=["json"],
+    key="import_library_file",
+)
+
+if import_file is not None:
+    if st.button("⬆ Import Library", use_container_width=True, key="import_library_button"):
+        try:
+            payload = json.loads(import_file.getvalue().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("Library file must contain a JSON object.")
+            import_library_payload(payload)
+            st.success("Library imported successfully.")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Could not import library: {exc}")
+
+favorites_tab, collections_tab = st.tabs(["⭐ Favorites", "📁 Collections"])
+
+with favorites_tab:
+    if not st.session_state.favorites:
+        st.info("No favorites yet. Use the ☆ Save button on any API card.")
+    else:
+        collection_names = list(st.session_state.collections.keys())
+
+        for fav_index, (link, record) in enumerate(list(st.session_state.favorites.items())):
+            fav_id = stable_id(link)
+
+            st.markdown(
+                f"""
+                <div class="api-card">
+                    <div class="api-name">★ {escape(record["API"])}</div>
+                    <div class="api-desc">{escape(record["Description"])}</div>
+                    <div class="badges">
+                        <span class="badge">{escape(record["Category"])}</span>
+                        <span class="badge">Auth: {escape(record["Auth"])}</span>
+                        <span class="badge">HTTPS: {escape(record["HTTPS"])}</span>
+                        <span class="badge">CORS: {escape(record["CORS"])}</span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            fav_open, fav_remove = st.columns([2.3, 1])
+
+            with fav_open:
                 st.link_button(
-                    f"Open {row['API']} ↗",
-                    str(row["Link"]),
+                    f"Open {record['API']} ↗",
+                    link,
                     use_container_width=True,
+                    key=f"fav_open_{fav_id}",
                 )
+
+            with fav_remove:
+                if st.button(
+                    "Remove Favorite",
+                    key=f"remove_fav_{fav_id}",
+                    use_container_width=True,
+                ):
+                    remove_favorite(link)
+                    st.rerun()
+
+            if collection_names:
+                add_col1, add_col2 = st.columns([2, 1])
+                with add_col1:
+                    destination = st.selectbox(
+                        "Add to collection",
+                        collection_names,
+                        key=f"fav_collection_select_{fav_id}",
+                        label_visibility="collapsed",
+                    )
+                with add_col2:
+                    if st.button(
+                        "Add",
+                        key=f"fav_add_collection_{fav_id}",
+                        use_container_width=True,
+                    ):
+                        add_to_collection(destination, record)
+                        st.toast(f"Added to {destination}.")
+                        st.rerun()
+            else:
+                st.caption("Create a collection above to organize this favorite.")
+
+with collections_tab:
+    if not st.session_state.collections:
+        st.info("No collections yet. Create your first collection above.")
+    else:
+        selected_collection = st.selectbox(
+            "Choose collection",
+            list(st.session_state.collections.keys()),
+            key="selected_library_collection",
+        )
+
+        collection_items = st.session_state.collections.get(selected_collection, {})
+
+        col_title, col_delete = st.columns([2.4, 1])
+        with col_title:
+            st.markdown(f"### 📁 {selected_collection}")
+            st.caption(f"{len(collection_items)} saved API(s)")
+        with col_delete:
+            if st.button(
+                "Delete Collection",
+                key=f"delete_collection_{stable_id(selected_collection)}",
+                use_container_width=True,
+            ):
+                st.session_state.collections.pop(selected_collection, None)
+                st.rerun()
+
+        if not collection_items:
+            st.info("This collection is empty. Add APIs from your Favorites tab.")
+        else:
+            for item_index, (link, record) in enumerate(list(collection_items.items())):
+                item_id = stable_id(selected_collection + link)
+
+                st.markdown(
+                    f"""
+                    <div class="api-card">
+                        <div class="api-name">{escape(record["API"])}</div>
+                        <div class="api-desc">{escape(record["Description"])}</div>
+                        <div class="badges">
+                            <span class="badge">{escape(record["Category"])}</span>
+                            <span class="badge">Auth: {escape(record["Auth"])}</span>
+                            <span class="badge">HTTPS: {escape(record["HTTPS"])}</span>
+                            <span class="badge">CORS: {escape(record["CORS"])}</span>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                item_open, item_remove = st.columns([2.3, 1])
+                with item_open:
+                    st.link_button(
+                        f"Open {record['API']} ↗",
+                        link,
+                        use_container_width=True,
+                        key=f"collection_open_{item_id}",
+                    )
+                with item_remove:
+                    if st.button(
+                        "Remove",
+                        key=f"collection_remove_{item_id}",
+                        use_container_width=True,
+                    ):
+                        remove_from_collection(selected_collection, link)
+                        st.rerun()
 
 
 # =========================================================
@@ -1577,7 +1927,7 @@ else:
 st.markdown(
     """
 <div class="footer-box">
-    NEXUS API • Intelligent discovery • Python + Streamlit • Data powered by public-apis/public-apis
+    NEXUS API • Discovery • API Testing • Favorites • Collections • Python + Streamlit
     <br><br>
     Describe your idea. Discover the API. Build the project.
 </div>

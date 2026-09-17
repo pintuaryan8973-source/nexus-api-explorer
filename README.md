@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="assets/nexus-api-banner.png" alt="NEXUS API Banner" width="100%">
+  <img src="https://raw.githubusercontent.com/pintuaryan8973-source/nexus-api-explorer/main/assets/nexus-api-banner.png"
+       alt="NEXUS API Banner"
+       width="100%">
 </p>
 
 <h1 align="center">⚡ NEXUS API — Public API Explorer</h1>
@@ -79,7 +81,7 @@ Source + public API data
 
 📂 Project Structure
 
-public_api_explorer/
+nexus-api-explorer/
 │
 ├── app.py
 ├── requirements.txt
@@ -93,8 +95,8 @@ public_api_explorer/
 
 Clone the repository:
 
-git clone YOUR_GITHUB_REPOSITORY_URL
-cd public_api_explorer
+git clone https://github.com/pintuaryan8973-source/nexus-api-explorer.git
+cd nexus-api-explorer
 
 Create a virtual environment:
 
@@ -155,6 +157,14 @@ Entertainment apps
 Data analysis
 
 Student projects
+
+📸 Project Preview
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/pintuaryan8973-source/nexus-api-explorer/main/assets/nexus-api-banner.png"
+       alt="NEXUS API Preview"
+       width="100%">
+</p>
 
 🗺️ Roadmap
 

@@ -2,6 +2,7 @@ import re
 import json
 import socket
 import time
+from datetime import datetime
 import ipaddress
 import hashlib
 from collections import Counter
@@ -272,6 +273,9 @@ if "favorites" not in st.session_state:
 if "collections" not in st.session_state:
     st.session_state.collections = {}
 
+if "request_history" not in st.session_state:
+    st.session_state.request_history = []
+
 
 def stable_id(value: str) -> str:
     return hashlib.sha1(str(value).encode("utf-8")).hexdigest()[:12]
@@ -330,6 +334,99 @@ def build_library_export() -> str:
         },
     }
     return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+
+def safe_auth_placeholder(auth_type: str):
+    if auth_type == "Bearer Token":
+        return {"Authorization": "Bearer <YOUR_TOKEN>"}
+    if auth_type == "X-API-Key":
+        return {"X-API-Key": "<YOUR_API_KEY>"}
+    if auth_type == "API Key (Authorization)":
+        return {"Authorization": "<YOUR_API_KEY>"}
+    return {}
+
+
+def build_code_snippets(method: str, url: str, params: dict, custom_headers: dict, auth_type: str, json_body):
+    method = method.upper().strip()
+    safe_headers = {str(k): str(v) for k, v in custom_headers.items()}
+    safe_headers.update(safe_auth_placeholder(auth_type))
+
+    # Python requests
+    py_lines = [
+        "import requests",
+        "",
+        f'url = {url!r}',
+        f"params = {repr(params)}",
+        f"headers = {repr(safe_headers)}",
+    ]
+    if method in {"POST", "PUT", "PATCH", "DELETE"} and json_body is not None:
+        py_lines.append(f"payload = {repr(json_body)}")
+        py_lines.append(
+            f'response = requests.request("{method}", url, params=params, headers=headers, json=payload, timeout=20)'
+        )
+    else:
+        py_lines.append(
+            f'response = requests.request("{method}", url, params=params, headers=headers, timeout=20)'
+        )
+    py_lines += ["", "print(response.status_code)", "print(response.text)"]
+    python_code = "\n".join(py_lines)
+
+    # JavaScript fetch
+    js_headers = dict(safe_headers)
+    if method in {"POST", "PUT", "PATCH", "DELETE"} and json_body is not None:
+        js_headers.setdefault("Content-Type", "application/json")
+
+    query_string = ""
+    if params:
+        query_string = "?" + "&".join(
+            f"{k}={v}" for k, v in params.items()
+        )
+
+    js_options = [
+        f'method: "{method}"',
+        f"headers: {json.dumps(js_headers, ensure_ascii=False)}",
+    ]
+    if method in {"POST", "PUT", "PATCH", "DELETE"} and json_body is not None:
+        js_options.append(
+            f"body: JSON.stringify({json.dumps(json_body, ensure_ascii=False)})"
+        )
+    js_code = (
+        f'const url = {json.dumps(url + query_string)};\n\n'
+        "const response = await fetch(url, {\n  "
+        + ",\n  ".join(js_options)
+        + "\n});\n\n"
+        "const data = await response.json();\n"
+        "console.log(response.status, data);"
+    )
+
+    # cURL
+    curl_parts = [f'curl -X {method} "{url}"']
+    for key, value in safe_headers.items():
+        curl_parts.append(f'-H "{key}: {value}"')
+    for key, value in params.items():
+        curl_parts.append(f'--data-urlencode "{key}={value}"')
+    if method in {"POST", "PUT", "PATCH", "DELETE"} and json_body is not None:
+        curl_parts.append('-H "Content-Type: application/json"')
+        curl_parts.append(
+            f"-d '{json.dumps(json_body, ensure_ascii=False)}'"
+        )
+    curl_code = " \\\n  ".join(curl_parts)
+
+    return python_code, js_code, curl_code
+
+
+def add_request_history(method: str, url: str, status, elapsed_ms, content_type: str):
+    entry = {
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "method": method,
+        "url": url,
+        "status": status,
+        "time_ms": round(float(elapsed_ms), 1) if elapsed_ms is not None else None,
+        "content_type": content_type or "Unknown",
+    }
+    st.session_state.request_history.insert(0, entry)
+    st.session_state.request_history = st.session_state.request_history[:20]
 
 
 def import_library_payload(payload: dict):
@@ -1498,6 +1595,14 @@ if st.button(
                     json_body,
                 )
 
+            add_request_history(
+                request_method,
+                test_url.strip(),
+                response.status_code,
+                elapsed_ms,
+                response.headers.get("Content-Type", "").split(";")[0],
+            )
+
             mc1, mc2, mc3, mc4 = st.columns(4)
             mc1.metric("Status", response.status_code)
             mc2.metric(
@@ -1547,6 +1652,34 @@ if st.button(
                     st.code(body_preview or "(empty response)", language="text")
             else:
                 st.code(body_preview or "(empty response)", language="text")
+
+            st.markdown("#### Quick-start code")
+            py_code, js_code, curl_code = build_code_snippets(
+                request_method,
+                test_url.strip(),
+                params,
+                custom_headers,
+                auth_type,
+                json_body,
+            )
+
+            code_tab1, code_tab2, code_tab3 = st.tabs(
+                ["🐍 Python", "🟨 JavaScript", "⌨️ cURL"]
+            )
+
+            with code_tab1:
+                st.code(py_code, language="python")
+
+            with code_tab2:
+                st.code(js_code, language="javascript")
+
+            with code_tab3:
+                st.code(curl_code, language="bash")
+
+            st.caption(
+                "Security note: temporary credentials are never inserted into generated snippets. "
+                "Placeholders are used instead."
+            )
 
             if truncated:
                 st.info("Response was larger than 1 MB, so only the first 1 MB is shown.")
@@ -1703,6 +1836,120 @@ else:
                         st.toast(f"{row['API']} added to Favorites.")
                         st.rerun()
 
+
+
+
+# =========================================================
+# API COMPARE
+# =========================================================
+st.markdown(
+    """
+<div class="section-head">
+  <div>
+    <div class="section-title">⚖️ Compare APIs</div>
+    <div class="section-sub">Compare up to three APIs side-by-side before choosing one for your project.</div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+api_options = (
+    df.assign(
+        Display=df["API"].astype(str) + " — " + df["Category"].astype(str)
+    )
+    .drop_duplicates(subset=["Display"])
+    .set_index("Display")
+)
+
+compare_choices = st.multiselect(
+    "Choose APIs to compare",
+    options=list(api_options.index),
+    max_selections=3,
+    placeholder="Select up to 3 APIs...",
+    key="compare_apis",
+)
+
+if compare_choices:
+    compare_rows = api_options.loc[compare_choices].reset_index()
+
+    compare_table = compare_rows[
+        ["API", "Category", "Auth", "HTTPS", "CORS", "Description", "Link"]
+    ].copy()
+
+    st.dataframe(
+        compare_table,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Link": st.column_config.LinkColumn("Docs"),
+        },
+    )
+
+    no_auth_count_compare = int(
+        compare_rows["Auth"].astype(str).str.lower().isin(["no", "", "none"]).sum()
+    )
+    https_count_compare = int(
+        compare_rows["HTTPS"].astype(str).str.lower().isin(["yes", "true"]).sum()
+    )
+
+    cp1, cp2 = st.columns(2)
+    cp1.metric("No-auth choices", f"{no_auth_count_compare}/{len(compare_rows)}")
+    cp2.metric("HTTPS choices", f"{https_count_compare}/{len(compare_rows)}")
+else:
+    st.info("Select APIs above to compare authentication, HTTPS, CORS and descriptions.")
+
+
+# =========================================================
+# REQUEST HISTORY
+# =========================================================
+st.markdown(
+    """
+<div class="section-head">
+  <div>
+    <div class="section-title">🕘 Request History</div>
+    <div class="section-sub">Review your latest API tests from this Streamlit session.</div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+if not st.session_state.request_history:
+    st.info("No requests tested yet in this session.")
+else:
+    history_df = pd.DataFrame(st.session_state.request_history)
+
+    st.dataframe(
+        history_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "time": "Time",
+            "method": "Method",
+            "url": "URL",
+            "status": "Status",
+            "time_ms": st.column_config.NumberColumn("Time (ms)", format="%.1f"),
+            "content_type": "Content Type",
+        },
+    )
+
+    history_c1, history_c2 = st.columns([1, 3])
+
+    with history_c1:
+        if st.button("Clear History", use_container_width=True, key="clear_request_history"):
+            st.session_state.request_history = []
+            st.rerun()
+
+    with history_c2:
+        st.download_button(
+            "⬇ Export Request History",
+            data=json.dumps(st.session_state.request_history, indent=2, ensure_ascii=False),
+            file_name="nexus_request_history.json",
+            mime="application/json",
+            use_container_width=True,
+            key="export_request_history",
+        )
 
 
 # =========================================================
@@ -1927,7 +2174,7 @@ with collections_tab:
 st.markdown(
     """
 <div class="footer-box">
-    NEXUS API • Discovery • API Testing • Favorites • Collections • Python + Streamlit
+    NEXUS API • Discovery • Testing • Code Generator • Compare • History • Collections
     <br><br>
     Describe your idea. Discover the API. Build the project.
 </div>

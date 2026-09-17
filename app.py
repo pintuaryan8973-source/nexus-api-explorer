@@ -1,5 +1,10 @@
 import re
+import json
+import socket
+import ipaddress
+from collections import Counter
 from html import escape
+from urllib.parse import urlparse
 
 import pandas as pd
 import requests
@@ -10,7 +15,7 @@ import streamlit as st
 # CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="NEXUS API — Public API Explorer",
+    page_title="NEXUS API — Intelligent Public API Explorer",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -136,7 +141,244 @@ def load_catalog():
     return pd.DataFrame(FALLBACK), False
 
 
+
+# =========================================================
+# INTELLIGENT RECOMMENDER
+# =========================================================
+STOP_WORDS = {
+    "i", "me", "my", "want", "to", "build", "make", "create", "need", "a", "an",
+    "the", "for", "with", "using", "app", "application", "project", "website",
+    "system", "tool", "please", "mujhe", "banana", "banani", "hai", "ka", "ki",
+    "ke", "liye", "ek", "chahiye", "karna", "krna", "main", "me", "aur", "or",
+}
+
+INTENT_MAP = {
+    "weather": ["weather", "forecast", "temperature", "climate", "rain", "storm"],
+    "finance": ["finance", "stock", "stocks", "market", "money", "currency", "forex", "bank"],
+    "cryptocurrency": ["crypto", "bitcoin", "ethereum", "coin", "blockchain"],
+    "security": ["security", "cyber", "cybersecurity", "threat", "malware", "vulnerability"],
+    "books": ["book", "books", "author", "library", "novel"],
+    "music": ["music", "song", "songs", "artist", "spotify", "audio"],
+    "movies": ["movie", "movies", "film", "cinema", "tv", "series"],
+    "jobs": ["job", "jobs", "career", "hiring", "employment"],
+    "news": ["news", "headlines", "article", "articles"],
+    "sports": ["sport", "sports", "football", "cricket", "basketball", "tennis"],
+    "animals": ["animal", "animals", "dog", "cat", "pet"],
+    "food": ["food", "recipe", "recipes", "meal", "nutrition"],
+    "health": ["health", "medical", "medicine", "fitness"],
+    "machine learning": ["machine learning", "ml", "ai", "artificial intelligence", "model"],
+    "programming": ["programming", "developer", "coding", "code", "github"],
+    "science": ["science", "space", "nasa", "astronomy", "research"],
+    "maps": ["map", "maps", "location", "geo", "geolocation", "places"],
+}
+
+
+def tokenize(text: str):
+    words = re.findall(r"[a-zA-Z0-9+#.]+", text.lower())
+    return [w for w in words if len(w) > 1 and w not in STOP_WORDS]
+
+
+def detect_intents(text: str):
+    lower = text.lower()
+    detected = []
+    for intent, terms in INTENT_MAP.items():
+        if any(term in lower for term in terms):
+            detected.append(intent)
+    return detected
+
+
+def recommend_apis(data: pd.DataFrame, idea: str, beginner_mode=True, top_n=8):
+    tokens = tokenize(idea)
+    intents = detect_intents(idea)
+    if not tokens and not intents:
+        return pd.DataFrame()
+
+    token_counts = Counter(tokens)
+    rows = []
+
+    for _, row in data.iterrows():
+        api = str(row["API"])
+        category = str(row["Category"])
+        desc = str(row["Description"])
+        auth = str(row["Auth"])
+        https = str(row["HTTPS"])
+
+        score = 0.0
+        reasons = []
+        matched = []
+
+        for token, count in token_counts.items():
+            if token in api.lower():
+                score += 5.0 * count
+                matched.append(token)
+            elif token in category.lower():
+                score += 4.0 * count
+                matched.append(token)
+            elif token in desc.lower():
+                score += 2.0 * count
+                matched.append(token)
+
+        if matched:
+            reasons.append("matches: " + ", ".join(sorted(set(matched))[:4]))
+
+        haystack = f"{api} {category} {desc}".lower()
+        for intent in intents:
+            intent_terms = [intent] + INTENT_MAP.get(intent, [])
+            if any(term in category.lower() for term in intent_terms):
+                score += 8.0
+                reasons.append(f"{intent} category")
+            elif any(term in haystack for term in intent_terms):
+                score += 3.0
+                reasons.append(f"{intent} related")
+
+        if https.strip().lower() in {"yes", "true"}:
+            score += 1.5
+            reasons.append("HTTPS")
+
+        if beginner_mode and auth.strip().lower() in {"no", "", "none"}:
+            score += 2.5
+            reasons.append("no API key")
+
+        if 15 <= len(desc) <= 180:
+            score += 0.4
+
+        if score > 0:
+            item = row.to_dict()
+            item["Score"] = round(score, 2)
+            item["Why"] = " • ".join(dict.fromkeys(reasons)) if reasons else "relevant match"
+            rows.append(item)
+
+    if not rows:
+        return pd.DataFrame()
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["Score", "API"], ascending=[False, True])
+        .head(top_n)
+        .reset_index(drop=True)
+    )
+
 df, live = load_catalog()
+
+
+# =========================================================
+# SAFE PUBLIC API TESTER HELPERS
+# =========================================================
+def validate_public_url(url: str):
+    """Allow only public HTTP(S) URLs and block local/private/reserved targets."""
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:
+        return False, "Invalid URL."
+
+    if parsed.scheme not in {"http", "https"}:
+        return False, "Only http:// and https:// URLs are allowed."
+
+    if not parsed.hostname:
+        return False, "URL must include a valid hostname."
+
+    host = parsed.hostname.lower().strip(".")
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(".local"):
+        return False, "Local/internal hosts are blocked."
+
+    try:
+        # Direct IP address
+        ip_obj = ipaddress.ip_address(host)
+        addresses = [ip_obj]
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+            addresses = []
+            for info in infos:
+                raw_ip = info[4][0]
+                try:
+                    addresses.append(ipaddress.ip_address(raw_ip))
+                except ValueError:
+                    continue
+        except socket.gaierror:
+            return False, "Hostname could not be resolved."
+        except Exception:
+            return False, "Could not validate this hostname."
+
+    if not addresses:
+        return False, "No public IP address found for this hostname."
+
+    for ip_obj in addresses:
+        if (
+            ip_obj.is_private
+            or ip_obj.is_loopback
+            or ip_obj.is_link_local
+            or ip_obj.is_multicast
+            or ip_obj.is_reserved
+            or ip_obj.is_unspecified
+        ):
+            return False, "Private, local, reserved, and internal network targets are blocked."
+
+    return True, "OK"
+
+
+def parse_query_params(raw_text: str):
+    if not raw_text.strip():
+        return {}
+    data = json.loads(raw_text)
+    if not isinstance(data, dict):
+        raise ValueError("Query parameters must be a JSON object.")
+    return data
+
+
+def test_public_api(url: str, params: dict, auth_type: str, auth_value: str):
+    ok, message = validate_public_url(url)
+    if not ok:
+        raise ValueError(message)
+
+    headers = {
+        "User-Agent": "NEXUS-API-Explorer/1.0",
+        "Accept": "application/json, text/plain;q=0.9, */*;q=0.5",
+    }
+
+    if auth_value.strip():
+        if auth_type == "Bearer Token":
+            headers["Authorization"] = f"Bearer {auth_value.strip()}"
+        elif auth_type == "X-API-Key":
+            headers["X-API-Key"] = auth_value.strip()
+        elif auth_type == "API Key (Authorization)":
+            headers["Authorization"] = auth_value.strip()
+
+    # Redirects stay disabled so a public URL cannot redirect to an internal target.
+    response = requests.get(
+        url.strip(),
+        params=params,
+        headers=headers,
+        timeout=(5, 15),
+        allow_redirects=False,
+        stream=True,
+    )
+
+    max_bytes = 1024 * 1024  # 1 MB preview limit
+    chunks = []
+    total = 0
+    truncated = False
+
+    for chunk in response.iter_content(chunk_size=16384):
+        if not chunk:
+            continue
+        remaining = max_bytes - total
+        if remaining <= 0:
+            truncated = True
+            break
+        if len(chunk) > remaining:
+            chunks.append(chunk[:remaining])
+            total += remaining
+            truncated = True
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+
+    body_bytes = b"".join(chunks)
+    encoding = response.encoding or "utf-8"
+    body_text = body_bytes.decode(encoding, errors="replace")
+
+    return response, body_text, truncated
 
 
 # =========================================================
@@ -531,6 +773,75 @@ html, body, [class*="css"] {
     font-size:.70rem;
 }
 
+
+.ai-box {
+    border:1px solid rgba(91,124,255,.24);
+    background:linear-gradient(135deg, rgba(91,124,255,.09), rgba(34,211,238,.045));
+    padding:22px;
+    border-radius:20px;
+    margin:12px 0 18px 0;
+}
+
+.ai-title {
+    font-family:"Space Grotesk", sans-serif;
+    font-size:1.22rem;
+    font-weight:700;
+}
+
+.ai-text {
+    color:#9eabc0;
+    margin-top:6px;
+    line-height:1.6;
+    font-size:.86rem;
+}
+
+.score {
+    display:inline-block;
+    margin-top:12px;
+    padding:5px 9px;
+    border-radius:8px;
+    color:#9fffd0;
+    background:rgba(50,224,140,.08);
+    border:1px solid rgba(50,224,140,.16);
+    font-size:.72rem;
+    font-weight:700;
+}
+
+.why {
+    margin-top:10px;
+    color:#8190a7;
+    font-size:.76rem;
+}
+
+.tester-box {
+    border:1px solid rgba(34,211,238,.20);
+    background:linear-gradient(135deg, rgba(34,211,238,.055), rgba(91,124,255,.055));
+    padding:22px;
+    border-radius:20px;
+    margin:12px 0 18px 0;
+}
+
+.tester-title {
+    font-family:"Space Grotesk", sans-serif;
+    font-size:1.22rem;
+    font-weight:700;
+}
+
+.tester-text {
+    color:#9eabc0;
+    margin-top:6px;
+    line-height:1.6;
+    font-size:.86rem;
+}
+
+.response-card {
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:18px;
+    background:#080b13;
+    padding:18px;
+    margin-top:12px;
+}
+
 .footer-box {
     margin-top:42px;
     padding:26px;
@@ -541,6 +852,7 @@ html, body, [class*="css"] {
 }
 
 div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea,
 div[data-testid="stSelectbox"] > div > div {
     background:#0c111d !important;
     border-color:rgba(255,255,255,.08) !important;
@@ -601,7 +913,7 @@ st.markdown(
         <div class="logo-box">N</div>
         <div class="brand">
             NEXUS API
-            <small>Public API Intelligence Explorer</small>
+            <small>Intelligent Public API Explorer</small>
         </div>
     </div>
 
@@ -624,20 +936,20 @@ st.markdown(
   <div class="hero-grid">
 
     <div>
-      <div class="eyebrow">⚡ API DISCOVERY ENGINE</div>
+      <div class="eyebrow">⚡ INTELLIGENT API DISCOVERY</div>
 
       <h1>
-        Find the API.<br>
-        <span class="gradient-text">Build anything.</span>
+        Describe your idea.<br>
+        <span class="gradient-text">Find the right API.</span>
       </h1>
 
       <p>
-        Explore {len(df):,}+ public APIs from one intelligent dashboard.
-        Search by use-case, filter by authentication, inspect HTTPS and CORS,
-        then jump directly into the documentation.
+        Explore {len(df):,}+ public APIs or describe your project in normal language.
+        NEXUS API can rank relevant APIs automatically, with no paid AI key required.
       </p>
 
       <div class="hero-actions">
+        <span class="tag">Smart Recommendations</span>
         <span class="tag">Python</span>
         <span class="tag">Web Apps</span>
         <span class="tag">AI / ML</span>
@@ -655,14 +967,14 @@ st.markdown(
       </div>
 
       <div class="terminal-body">
-        <div><span class="t-muted">$</span> nexus search <span class="t-cyan">weather</span></div>
-        <div><span class="t-green">✓</span> catalog connected</div>
-        <div><span class="t-green">✓</span> {len(df):,} APIs indexed</div>
-        <div><span class="t-violet">→</span> filtering secure endpoints</div>
-        <div><span class="t-muted">status:</span> ready</div>
+        <div><span class="t-muted">$</span> nexus recommend</div>
+        <div><span class="t-cyan">idea:</span> weather app for students</div>
+        <div><span class="t-green">✓</span> intent detected</div>
+        <div><span class="t-green">✓</span> secure APIs prioritized</div>
+        <div><span class="t-violet">→</span> beginner-friendly matches ranked</div>
+        <div><span class="t-muted">status:</span> intelligence ready</div>
         <br>
-        <div class="t-muted"># Build faster. Search smarter.</div>
-        <div><span class="t-cyan">GET</span> /discover/api</div>
+        <div><span class="t-cyan">GET</span> /recommend/api</div>
         <div><span class="t-green">200 OK</span></div>
       </div>
     </div>
@@ -752,7 +1064,7 @@ st.markdown(
 f1, f2, f3, f4 = st.columns(4)
 
 feature_data = [
-    ("01", "Instant Discovery", "Search API names, descriptions and categories instantly."),
+    ("01", "Idea Recommender", "Describe a project idea and get ranked API recommendations."),
     ("02", "Smart Filters", "Narrow results using category and authentication requirements."),
     ("03", "Security Signals", "See HTTPS and CORS support before opening the docs."),
     ("04", "Direct Launch", "Jump straight from discovery into official API documentation."),
@@ -771,6 +1083,227 @@ for col, item in zip((f1, f2, f3, f4), feature_data):
             """,
             unsafe_allow_html=True,
         )
+
+
+# =========================================================
+# INTELLIGENT RECOMMENDER
+# =========================================================
+st.markdown(
+    """
+<div class="section-head">
+  <div>
+    <div class="section-title">🧠 Intelligent API Recommender</div>
+    <div class="section-sub">Describe what you want to build in English or Hinglish.</div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <div class="ai-box">
+        <div class="ai-title">No API key required</div>
+        <div class="ai-text">
+            This local intelligence engine detects your project intent, matches keywords with
+            API names/categories/descriptions, and boosts secure + beginner-friendly APIs.
+            Example: <b>“mujhe crypto price tracker banana hai”</b>.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+idea = st.text_area(
+    "Project idea",
+    placeholder="Example: I want to build a weather dashboard for students with forecast data...",
+    height=110,
+)
+
+r1, r2 = st.columns([1, 1])
+with r1:
+    beginner_mode = st.toggle("Prefer no-key / beginner APIs", value=True)
+with r2:
+    recommendation_count = st.selectbox("Number of recommendations", [4, 6, 8, 10, 12], index=2)
+
+if st.button("⚡ Find Best APIs", use_container_width=True, type="primary"):
+    if not idea.strip():
+        st.warning("Please describe your project idea first.")
+    else:
+        recommendations = recommend_apis(
+            df,
+            idea,
+            beginner_mode=beginner_mode,
+            top_n=recommendation_count,
+        )
+
+        detected = detect_intents(idea)
+        if detected:
+            st.success("Detected intent: " + ", ".join(detected))
+
+        if recommendations.empty:
+            st.info("No strong match found. Add a few more specific words about the data you need.")
+        else:
+            st.markdown(
+                f'<div class="section-sub"><b>{len(recommendations)}</b> recommended APIs ranked for your idea.</div>',
+                unsafe_allow_html=True,
+            )
+
+            for i, row in recommendations.iterrows():
+                api_name = escape(str(row["API"]))
+                desc = escape(str(row["Description"]))
+                cat = escape(str(row["Category"]))
+                auth_value = escape(str(row["Auth"]))
+                https_value = escape(str(row["HTTPS"]))
+                cors_value = escape(str(row["CORS"]))
+                why = escape(str(row["Why"]))
+                score = row["Score"]
+
+                st.markdown(
+                    f"""
+                    <div class="api-card">
+                        <div class="api-name">#{i+1} — {api_name}</div>
+                        <div class="api-desc">{desc}</div>
+
+                        <div class="badges">
+                            <span class="badge">{cat}</span>
+                            <span class="badge">Auth: {auth_value}</span>
+                            <span class="badge">HTTPS: {https_value}</span>
+                            <span class="badge">CORS: {cors_value}</span>
+                        </div>
+
+                        <div class="score">Relevance score: {score}</div>
+                        <div class="why">Why recommended: {why}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                st.link_button(
+                    f"Open {row['API']} documentation ↗",
+                    str(row["Link"]),
+                    use_container_width=True,
+                )
+
+# =========================================================
+# SAFE BUILT-IN API TESTER
+# =========================================================
+st.markdown(
+    """
+<div class="section-head">
+  <div>
+    <div class="section-title">🧪 Built-in API Tester</div>
+    <div class="section-sub">Test a public GET endpoint and inspect its response without leaving NEXUS API.</div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <div class="tester-box">
+        <div class="tester-title">Safe GET Request Console</div>
+        <div class="tester-text">
+            Enter a public API endpoint. Local/private network addresses are blocked, redirects are not followed,
+            requests time out automatically, and the response preview is limited to 1 MB. Never hardcode secret
+            API keys in GitHub; if needed, enter a temporary key only in the field below.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+test_url = st.text_input(
+    "API endpoint URL",
+    placeholder="Example: https://jsonplaceholder.typicode.com/todos/1",
+    key="tester_url",
+)
+
+tp1, tp2 = st.columns([1.35, 1])
+with tp1:
+    params_text = st.text_area(
+        "Query parameters (JSON)",
+        value="{}",
+        height=100,
+        key="tester_params",
+        help='Example: {"limit": 5, "page": 1}',
+    )
+with tp2:
+    auth_type = st.selectbox(
+        "Optional authentication",
+        ["None", "Bearer Token", "X-API-Key", "API Key (Authorization)"],
+        key="tester_auth_type",
+    )
+    auth_value = st.text_input(
+        "Temporary token / key",
+        type="password",
+        key="tester_auth_value",
+        help="Used only for this request and not written to your project files.",
+    )
+
+if st.button("▶ Test API", use_container_width=True, key="run_api_test"):
+    if not test_url.strip():
+        st.warning("Enter a public API endpoint first.")
+    else:
+        try:
+            params = parse_query_params(params_text)
+            with st.spinner("Sending safe GET request..."):
+                response, body_text, truncated = test_public_api(
+                    test_url,
+                    params,
+                    auth_type,
+                    auth_value,
+                )
+
+            mc1, mc2, mc3 = st.columns(3)
+            mc1.metric("Status", response.status_code)
+            mc2.metric("Content type", response.headers.get("Content-Type", "Unknown").split(";")[0])
+            mc3.metric("Preview", "1 MB max")
+
+            if 200 <= response.status_code < 300:
+                st.success(f"Request completed successfully: HTTP {response.status_code}")
+            elif 300 <= response.status_code < 400:
+                location = response.headers.get("Location", "Not provided")
+                st.warning(
+                    f"HTTP {response.status_code} redirect received. Redirects are intentionally not followed for safety. "
+                    f"Location: {location}"
+                )
+            else:
+                st.error(f"API returned HTTP {response.status_code}")
+
+            with st.expander("Response headers"):
+                safe_headers = {
+                    k: v for k, v in response.headers.items()
+                    if k.lower() not in {"set-cookie"}
+                }
+                st.json(safe_headers)
+
+            st.markdown("#### Response preview")
+            content_type = response.headers.get("Content-Type", "").lower()
+
+            if "json" in content_type:
+                try:
+                    parsed_json = json.loads(body_text)
+                    st.json(parsed_json, expanded=True)
+                except Exception:
+                    st.code(body_text or "(empty response)", language="text")
+            else:
+                st.code(body_text or "(empty response)", language="text")
+
+            if truncated:
+                st.info("Response was larger than 1 MB, so only the first 1 MB is shown.")
+
+        except json.JSONDecodeError:
+            st.error('Query parameters are not valid JSON. Example: {"limit": 5}')
+        except ValueError as exc:
+            st.error(str(exc))
+        except requests.Timeout:
+            st.error("The API request timed out.")
+        except requests.RequestException as exc:
+            st.error(f"Request failed: {exc}")
+        except Exception as exc:
+            st.error(f"Could not test this API: {exc}")
 
 
 # =========================================================
@@ -904,9 +1437,9 @@ else:
 st.markdown(
     """
 <div class="footer-box">
-    NEXUS API • Built with Python + Streamlit • Data powered by public-apis/public-apis
+    NEXUS API • Intelligent discovery • Python + Streamlit • Data powered by public-apis/public-apis
     <br><br>
-    Discover faster. Build smarter. Ship more.
+    Describe your idea. Discover the API. Build the project.
 </div>
 """,
     unsafe_allow_html=True,

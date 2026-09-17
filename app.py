@@ -1,6 +1,7 @@
 import re
 import json
 import socket
+import time
 import ipaddress
 from collections import Counter
 from html import escape
@@ -274,6 +275,9 @@ def validate_public_url(url: str):
     if parsed.scheme not in {"http", "https"}:
         return False, "Only http:// and https:// URLs are allowed."
 
+    if parsed.username or parsed.password:
+        return False, "URLs containing embedded usernames/passwords are blocked."
+
     if not parsed.hostname:
         return False, "URL must include a valid hostname."
 
@@ -282,12 +286,15 @@ def validate_public_url(url: str):
         return False, "Local/internal hosts are blocked."
 
     try:
-        # Direct IP address
         ip_obj = ipaddress.ip_address(host)
         addresses = [ip_obj]
     except ValueError:
         try:
-            infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+            infos = socket.getaddrinfo(
+                host,
+                parsed.port or (443 if parsed.scheme == "https" else 80),
+                type=socket.SOCK_STREAM,
+            )
             addresses = []
             for info in infos:
                 raw_ip = info[4][0]
@@ -317,24 +324,68 @@ def validate_public_url(url: str):
     return True, "OK"
 
 
-def parse_query_params(raw_text: str):
+def parse_json_object(raw_text: str, label: str):
     if not raw_text.strip():
         return {}
+
     data = json.loads(raw_text)
     if not isinstance(data, dict):
-        raise ValueError("Query parameters must be a JSON object.")
+        raise ValueError(f"{label} must be a JSON object.")
     return data
 
 
-def test_public_api(url: str, params: dict, auth_type: str, auth_value: str):
+def sanitize_custom_headers(headers: dict):
+    blocked = {
+        "host",
+        "content-length",
+        "transfer-encoding",
+        "connection",
+        "proxy-authorization",
+        "proxy-authenticate",
+        "upgrade",
+        "te",
+    }
+
+    clean = {}
+    for key, value in headers.items():
+        key = str(key).strip()
+        if not key:
+            continue
+
+        if key.lower() in blocked:
+            raise ValueError(f'Header "{key}" is not allowed.')
+
+        if isinstance(value, (dict, list)):
+            raise ValueError(f'Header "{key}" must have a simple string/number value.')
+
+        clean[key] = str(value)
+
+    return clean
+
+
+def test_public_api(
+    method: str,
+    url: str,
+    params: dict,
+    custom_headers: dict,
+    auth_type: str,
+    auth_value: str,
+    json_body: dict | None,
+):
     ok, message = validate_public_url(url)
     if not ok:
         raise ValueError(message)
 
+    method = method.upper().strip()
+    allowed_methods = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+    if method not in allowed_methods:
+        raise ValueError("Unsupported HTTP method.")
+
     headers = {
-        "User-Agent": "NEXUS-API-Explorer/1.0",
+        "User-Agent": "NEXUS-API-Explorer/2.0",
         "Accept": "application/json, text/plain;q=0.9, */*;q=0.5",
     }
+    headers.update(sanitize_custom_headers(custom_headers))
 
     if auth_value.strip():
         if auth_type == "Bearer Token":
@@ -344,15 +395,24 @@ def test_public_api(url: str, params: dict, auth_type: str, auth_value: str):
         elif auth_type == "API Key (Authorization)":
             headers["Authorization"] = auth_value.strip()
 
-    # Redirects stay disabled so a public URL cannot redirect to an internal target.
-    response = requests.get(
+    request_kwargs = {
+        "params": params,
+        "headers": headers,
+        "timeout": (5, 20),
+        "allow_redirects": False,
+        "stream": True,
+    }
+
+    if method in {"POST", "PUT", "PATCH", "DELETE"} and json_body is not None:
+        request_kwargs["json"] = json_body
+
+    started = time.perf_counter()
+    response = requests.request(
+        method,
         url.strip(),
-        params=params,
-        headers=headers,
-        timeout=(5, 15),
-        allow_redirects=False,
-        stream=True,
+        **request_kwargs,
     )
+    elapsed_ms = (time.perf_counter() - started) * 1000
 
     max_bytes = 1024 * 1024  # 1 MB preview limit
     chunks = []
@@ -362,15 +422,18 @@ def test_public_api(url: str, params: dict, auth_type: str, auth_value: str):
     for chunk in response.iter_content(chunk_size=16384):
         if not chunk:
             continue
+
         remaining = max_bytes - total
         if remaining <= 0:
             truncated = True
             break
+
         if len(chunk) > remaining:
             chunks.append(chunk[:remaining])
             total += remaining
             truncated = True
             break
+
         chunks.append(chunk)
         total += len(chunk)
 
@@ -378,7 +441,7 @@ def test_public_api(url: str, params: dict, auth_type: str, auth_value: str):
     encoding = response.encoding or "utf-8"
     body_text = body_bytes.decode(encoding, errors="replace")
 
-    return response, body_text, truncated
+    return response, body_text, truncated, elapsed_ms, len(body_bytes)
 
 
 # =========================================================
@@ -1067,7 +1130,7 @@ feature_data = [
     ("01", "Idea Recommender", "Describe a project idea and get ranked API recommendations."),
     ("02", "Smart Filters", "Narrow results using category and authentication requirements."),
     ("03", "Security Signals", "See HTTPS and CORS support before opening the docs."),
-    ("04", "Direct Launch", "Jump straight from discovery into official API documentation."),
+    ("04", "API Tester", "Send GET, POST, PUT, PATCH and DELETE requests safely."),
 ]
 
 for col, item in zip((f1, f2, f3, f4), feature_data):
@@ -1186,14 +1249,14 @@ if st.button("⚡ Find Best APIs", use_container_width=True, type="primary"):
                 )
 
 # =========================================================
-# SAFE BUILT-IN API TESTER
+# ADVANCED BUILT-IN API TESTER
 # =========================================================
 st.markdown(
     """
 <div class="section-head">
   <div>
-    <div class="section-title">🧪 Built-in API Tester</div>
-    <div class="section-sub">Test a public GET endpoint and inspect its response without leaving NEXUS API.</div>
+    <div class="section-title">🧪 Advanced API Tester</div>
+    <div class="section-sub">Test public GET, POST, PUT, PATCH and DELETE endpoints directly inside NEXUS API.</div>
   </div>
 </div>
 """,
@@ -1203,38 +1266,83 @@ st.markdown(
 st.markdown(
     """
     <div class="tester-box">
-        <div class="tester-title">Safe GET Request Console</div>
+        <div class="tester-title">Multi-Method Request Console</div>
         <div class="tester-text">
-            Enter a public API endpoint. Local/private network addresses are blocked, redirects are not followed,
-            requests time out automatically, and the response preview is limited to 1 MB. Never hardcode secret
-            API keys in GitHub; if needed, enter a temporary key only in the field below.
+            Public endpoints only. Local/private network addresses are blocked, redirects are not followed,
+            requests time out automatically, and response previews are limited to 1 MB.
+            Use POST/PUT/PATCH/DELETE only on APIs you own or are authorized to test.
+            Never save secret API keys in GitHub.
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-test_url = st.text_input(
-    "API endpoint URL",
-    placeholder="Example: https://jsonplaceholder.typicode.com/todos/1",
-    key="tester_url",
-)
+method_col, url_col = st.columns([0.75, 3.25])
 
-tp1, tp2 = st.columns([1.35, 1])
+with method_col:
+    request_method = st.selectbox(
+        "HTTP method",
+        ["GET", "POST", "PUT", "PATCH", "DELETE"],
+        key="tester_method",
+    )
+
+with url_col:
+    test_url = st.text_input(
+        "API endpoint URL",
+        placeholder="Example: https://jsonplaceholder.typicode.com/posts",
+        key="tester_url",
+    )
+
+tp1, tp2 = st.columns(2)
+
 with tp1:
     params_text = st.text_area(
         "Query parameters (JSON)",
         value="{}",
-        height=100,
+        height=120,
         key="tester_params",
         help='Example: {"limit": 5, "page": 1}',
     )
+
 with tp2:
+    custom_headers_text = st.text_area(
+        "Custom headers (JSON)",
+        value="{}",
+        height=120,
+        key="tester_headers",
+        help='Example: {"Accept-Language": "en-US"}',
+    )
+
+body_col, auth_col = st.columns([1.55, 1])
+
+with body_col:
+    if request_method == "GET":
+        st.text_area(
+            "JSON request body",
+            value="",
+            height=150,
+            disabled=True,
+            key="tester_body_disabled",
+            help="GET requests do not use a JSON body in this tester.",
+        )
+        body_text = ""
+    else:
+        body_text = st.text_area(
+            "JSON request body",
+            value="{}",
+            height=150,
+            key="tester_body",
+            help='Example: {"title": "Hello", "userId": 1}',
+        )
+
+with auth_col:
     auth_type = st.selectbox(
         "Optional authentication",
         ["None", "Bearer Token", "X-API-Key", "API Key (Authorization)"],
         key="tester_auth_type",
     )
+
     auth_value = st.text_input(
         "Temporary token / key",
         type="password",
@@ -1242,39 +1350,71 @@ with tp2:
         help="Used only for this request and not written to your project files.",
     )
 
-if st.button("▶ Test API", use_container_width=True, key="run_api_test"):
+    if request_method == "DELETE":
+        st.warning("DELETE can permanently remove data on real APIs. Use only authorized test endpoints.")
+
+if st.button(
+    f"▶ Send {request_method} Request",
+    use_container_width=True,
+    key="run_api_test",
+    type="primary",
+):
     if not test_url.strip():
         st.warning("Enter a public API endpoint first.")
     else:
         try:
-            params = parse_query_params(params_text)
-            with st.spinner("Sending safe GET request..."):
-                response, body_text, truncated = test_public_api(
+            params = parse_json_object(params_text, "Query parameters")
+            custom_headers = parse_json_object(custom_headers_text, "Custom headers")
+
+            json_body = None
+            if request_method in {"POST", "PUT", "PATCH", "DELETE"}:
+                json_body = parse_json_object(body_text, "JSON request body")
+
+            with st.spinner(f"Sending safe {request_method} request..."):
+                response, body_preview, truncated, elapsed_ms, preview_bytes = test_public_api(
+                    request_method,
                     test_url,
                     params,
+                    custom_headers,
                     auth_type,
                     auth_value,
+                    json_body,
                 )
 
-            mc1, mc2, mc3 = st.columns(3)
+            mc1, mc2, mc3, mc4 = st.columns(4)
             mc1.metric("Status", response.status_code)
-            mc2.metric("Content type", response.headers.get("Content-Type", "Unknown").split(";")[0])
-            mc3.metric("Preview", "1 MB max")
+            mc2.metric(
+                "Content type",
+                response.headers.get("Content-Type", "Unknown").split(";")[0],
+            )
+            mc3.metric("Time", f"{elapsed_ms:.0f} ms")
+            mc4.metric("Preview size", f"{preview_bytes / 1024:.1f} KB")
 
             if 200 <= response.status_code < 300:
-                st.success(f"Request completed successfully: HTTP {response.status_code}")
+                st.success(
+                    f"{request_method} request completed successfully: HTTP {response.status_code}"
+                )
             elif 300 <= response.status_code < 400:
                 location = response.headers.get("Location", "Not provided")
                 st.warning(
-                    f"HTTP {response.status_code} redirect received. Redirects are intentionally not followed for safety. "
-                    f"Location: {location}"
+                    f"HTTP {response.status_code} redirect received. Redirects are intentionally "
+                    f"not followed for safety. Location: {location}"
                 )
             else:
                 st.error(f"API returned HTTP {response.status_code}")
 
+            with st.expander("Request summary"):
+                st.code(
+                    f"Method: {request_method}\n"
+                    f"URL: {test_url.strip()}\n"
+                    f"Query params: {json.dumps(params, ensure_ascii=False)}",
+                    language="text",
+                )
+
             with st.expander("Response headers"):
                 safe_headers = {
-                    k: v for k, v in response.headers.items()
+                    k: v
+                    for k, v in response.headers.items()
                     if k.lower() not in {"set-cookie"}
                 }
                 st.json(safe_headers)
@@ -1284,18 +1424,18 @@ if st.button("▶ Test API", use_container_width=True, key="run_api_test"):
 
             if "json" in content_type:
                 try:
-                    parsed_json = json.loads(body_text)
+                    parsed_json = json.loads(body_preview)
                     st.json(parsed_json, expanded=True)
                 except Exception:
-                    st.code(body_text or "(empty response)", language="text")
+                    st.code(body_preview or "(empty response)", language="text")
             else:
-                st.code(body_text or "(empty response)", language="text")
+                st.code(body_preview or "(empty response)", language="text")
 
             if truncated:
                 st.info("Response was larger than 1 MB, so only the first 1 MB is shown.")
 
-        except json.JSONDecodeError:
-            st.error('Query parameters are not valid JSON. Example: {"limit": 5}')
+        except json.JSONDecodeError as exc:
+            st.error(f"Invalid JSON: {exc.msg}. Check query parameters, headers, or request body.")
         except ValueError as exc:
             st.error(str(exc))
         except requests.Timeout:

@@ -276,6 +276,12 @@ if "collections" not in st.session_state:
 if "request_history" not in st.session_state:
     st.session_state.request_history = []
 
+if "last_response_preview" not in st.session_state:
+    st.session_state.last_response_preview = ""
+
+if "last_response_content_type" not in st.session_state:
+    st.session_state.last_response_content_type = ""
+
 
 def stable_id(value: str) -> str:
     return hashlib.sha1(str(value).encode("utf-8")).hexdigest()[:12]
@@ -640,6 +646,91 @@ def test_public_api(
     body_text = body_bytes.decode(encoding, errors="replace")
 
     return response, body_text, truncated, elapsed_ms, len(body_bytes)
+
+
+
+# =========================================================
+# JSON TOOLKIT HELPERS
+# =========================================================
+def json_value_type(value):
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return type(value).__name__
+
+
+def flatten_json_structure(value, path="$", rows=None, max_rows=300):
+    if rows is None:
+        rows = []
+
+    if len(rows) >= max_rows:
+        return rows
+
+    rows.append(
+        {
+            "Path": path,
+            "Type": json_value_type(value),
+            "Sample": (
+                str(value)[:120]
+                if not isinstance(value, (dict, list))
+                else f"{len(value)} item(s)"
+            ),
+        }
+    )
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if len(rows) >= max_rows:
+                break
+            flatten_json_structure(child, f"{path}.{key}", rows, max_rows)
+
+    elif isinstance(value, list):
+        for index, child in enumerate(value[:5]):
+            if len(rows) >= max_rows:
+                break
+            flatten_json_structure(child, f"{path}[{index}]", rows, max_rows)
+
+    return rows
+
+
+def build_python_json_access_example(value):
+    lines = [
+        "import requests",
+        "",
+        "# After getting a response:",
+        "data = response.json()",
+        "",
+    ]
+
+    if isinstance(value, dict):
+        keys = list(value.keys())[:6]
+        if keys:
+            lines.append("# Example top-level fields")
+            for key in keys:
+                lines.append(f'print(data.get({key!r}))')
+        else:
+            lines.append("print(data)")
+    elif isinstance(value, list):
+        lines += [
+            "# Example list handling",
+            "for item in data:",
+            "    print(item)",
+        ]
+    else:
+        lines.append("print(data)")
+
+    return "\n".join(lines)
 
 
 # =========================================================
@@ -1595,6 +1686,9 @@ if st.button(
                     json_body,
                 )
 
+            st.session_state.last_response_preview = body_preview
+            st.session_state.last_response_content_type = response.headers.get("Content-Type", "")
+
             add_request_history(
                 request_method,
                 test_url.strip(),
@@ -1837,6 +1931,300 @@ else:
                         st.rerun()
 
 
+
+
+
+
+# =========================================================
+# JSON RESPONSE TOOLKIT
+# =========================================================
+st.markdown(
+    """
+<div class="section-head">
+  <div>
+    <div class="section-title">🧩 JSON Response Toolkit</div>
+    <div class="section-sub">Inspect JSON structure, discover field types, convert tabular JSON to CSV and generate parsing code.</div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+json_source_mode = st.radio(
+    "JSON source",
+    ["Use last API Tester response", "Paste JSON manually"],
+    horizontal=True,
+    key="json_toolkit_source",
+)
+
+if json_source_mode == "Use last API Tester response":
+    toolkit_raw = st.session_state.last_response_preview
+    if not toolkit_raw:
+        st.info("Run an API test first, or switch to manual JSON input.")
+else:
+    toolkit_raw = st.text_area(
+        "Paste JSON",
+        placeholder='{"name": "NEXUS API", "status": "active"}',
+        height=180,
+        key="json_toolkit_manual",
+    )
+
+if toolkit_raw:
+    try:
+        parsed_toolkit_json = json.loads(toolkit_raw)
+
+        jt1, jt2, jt3 = st.columns(3)
+        jt1.metric("Root type", json_value_type(parsed_toolkit_json))
+
+        if isinstance(parsed_toolkit_json, dict):
+            jt2.metric("Top-level fields", len(parsed_toolkit_json))
+            jt3.metric("Items", 1)
+        elif isinstance(parsed_toolkit_json, list):
+            jt2.metric("Top-level fields", "—")
+            jt3.metric("Items", len(parsed_toolkit_json))
+        else:
+            jt2.metric("Top-level fields", "—")
+            jt3.metric("Items", 1)
+
+        toolkit_tab1, toolkit_tab2, toolkit_tab3, toolkit_tab4 = st.tabs(
+            ["🌳 Structure", "📄 Pretty JSON", "📊 Table / CSV", "🐍 Python"]
+        )
+
+        with toolkit_tab1:
+            structure_rows = flatten_json_structure(parsed_toolkit_json)
+            structure_df = pd.DataFrame(structure_rows)
+            st.dataframe(
+                structure_df,
+                use_container_width=True,
+                hide_index=True,
+            )
+            if len(structure_rows) >= 300:
+                st.caption("Structure preview limited to 300 rows.")
+
+        with toolkit_tab2:
+            st.json(parsed_toolkit_json, expanded=True)
+            st.download_button(
+                "⬇ Download Pretty JSON",
+                data=json.dumps(parsed_toolkit_json, indent=2, ensure_ascii=False),
+                file_name="nexus_response.json",
+                mime="application/json",
+                use_container_width=True,
+                key="download_pretty_json",
+            )
+
+        with toolkit_tab3:
+            tabular_df = None
+
+            if isinstance(parsed_toolkit_json, list) and all(
+                isinstance(item, dict) for item in parsed_toolkit_json
+            ):
+                tabular_df = pd.json_normalize(parsed_toolkit_json)
+
+            elif isinstance(parsed_toolkit_json, dict):
+                list_candidates = [
+                    value
+                    for value in parsed_toolkit_json.values()
+                    if isinstance(value, list)
+                    and value
+                    and all(isinstance(item, dict) for item in value)
+                ]
+                if list_candidates:
+                    tabular_df = pd.json_normalize(list_candidates[0])
+
+            if tabular_df is not None and not tabular_df.empty:
+                st.dataframe(tabular_df, use_container_width=True, hide_index=True)
+                st.download_button(
+                    "⬇ Export CSV",
+                    data=tabular_df.to_csv(index=False).encode("utf-8"),
+                    file_name="nexus_response.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="export_json_csv",
+                )
+            else:
+                st.info(
+                    "CSV conversion works when the JSON contains a list of objects/records."
+                )
+
+        with toolkit_tab4:
+            parsing_code = build_python_json_access_example(parsed_toolkit_json)
+            st.code(parsing_code, language="python")
+
+    except json.JSONDecodeError as exc:
+        st.error(f"Invalid JSON: {exc.msg}")
+
+
+# =========================================================
+# API HEALTH CHECKER
+# =========================================================
+st.markdown(
+    """
+<div class="section-head">
+  <div>
+    <div class="section-title">❤️ API Health Checker</div>
+    <div class="section-sub">Check whether public API endpoints are reachable and compare response speed.</div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <div class="ai-box">
+        <div class="ai-title">Endpoint Monitor</div>
+        <div class="ai-text">
+            Paste up to 8 public API URLs, one per line. NEXUS API checks HTTP status,
+            response time and content type. Private/local network targets remain blocked.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+health_urls_raw = st.text_area(
+    "API endpoints to check",
+    placeholder=(
+        "https://jsonplaceholder.typicode.com/todos/1\n"
+        "https://api.github.com\n"
+        "https://catfact.ninja/fact"
+    ),
+    height=145,
+    key="health_urls",
+)
+
+health_method = st.selectbox(
+    "Health-check method",
+    ["GET", "HEAD"],
+    key="health_method",
+    help="GET is more compatible. HEAD can be faster but some APIs do not support it.",
+)
+
+if st.button("❤️ Check API Health", use_container_width=True, key="run_health_check"):
+    urls = [u.strip() for u in health_urls_raw.splitlines() if u.strip()]
+    urls = list(dict.fromkeys(urls))[:8]
+
+    if not urls:
+        st.warning("Add at least one public API URL.")
+    else:
+        results = []
+        progress = st.progress(0)
+
+        for index, url in enumerate(urls, start=1):
+            ok, reason = validate_public_url(url)
+
+            if not ok:
+                results.append(
+                    {
+                        "URL": url,
+                        "Health": "Blocked",
+                        "Status": "-",
+                        "Time (ms)": None,
+                        "Content Type": "-",
+                        "Note": reason,
+                    }
+                )
+                progress.progress(index / len(urls))
+                continue
+
+            try:
+                started = time.perf_counter()
+                response = requests.request(
+                    health_method,
+                    url,
+                    timeout=(5, 12),
+                    allow_redirects=False,
+                    stream=True,
+                    headers={
+                        "User-Agent": "NEXUS-API-Health-Checker/1.0",
+                        "Accept": "*/*",
+                    },
+                )
+                elapsed_ms = (time.perf_counter() - started) * 1000
+
+                status = response.status_code
+                if 200 <= status < 300:
+                    health = "Healthy"
+                elif 300 <= status < 400:
+                    health = "Redirect"
+                elif 400 <= status < 500:
+                    health = "Client error"
+                else:
+                    health = "Server error"
+
+                results.append(
+                    {
+                        "URL": url,
+                        "Health": health,
+                        "Status": status,
+                        "Time (ms)": round(elapsed_ms, 1),
+                        "Content Type": response.headers.get("Content-Type", "Unknown").split(";")[0],
+                        "Note": response.headers.get("Location", "") if 300 <= status < 400 else "",
+                    }
+                )
+                response.close()
+
+            except requests.Timeout:
+                results.append(
+                    {
+                        "URL": url,
+                        "Health": "Timeout",
+                        "Status": "-",
+                        "Time (ms)": None,
+                        "Content Type": "-",
+                        "Note": "Request timed out",
+                    }
+                )
+            except requests.RequestException as exc:
+                results.append(
+                    {
+                        "URL": url,
+                        "Health": "Failed",
+                        "Status": "-",
+                        "Time (ms)": None,
+                        "Content Type": "-",
+                        "Note": str(exc)[:120],
+                    }
+                )
+
+            progress.progress(index / len(urls))
+
+        progress.empty()
+
+        health_df = pd.DataFrame(results)
+
+        healthy_count = int((health_df["Health"] == "Healthy").sum())
+        timed = pd.to_numeric(health_df["Time (ms)"], errors="coerce").dropna()
+
+        hc1, hc2, hc3 = st.columns(3)
+        hc1.metric("Healthy", f"{healthy_count}/{len(health_df)}")
+        hc2.metric(
+            "Average latency",
+            f"{timed.mean():.0f} ms" if not timed.empty else "N/A",
+        )
+        hc3.metric(
+            "Fastest",
+            f"{timed.min():.0f} ms" if not timed.empty else "N/A",
+        )
+
+        st.dataframe(
+            health_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "URL": st.column_config.LinkColumn("Endpoint"),
+                "Time (ms)": st.column_config.NumberColumn("Time (ms)", format="%.1f"),
+            },
+        )
+
+        st.download_button(
+            "⬇ Export Health Report CSV",
+            data=health_df.to_csv(index=False).encode("utf-8"),
+            file_name="nexus_api_health_report.csv",
+            mime="text/csv",
+            use_container_width=True,
+            key="export_health_report",
+        )
 
 
 # =========================================================
@@ -2174,7 +2562,7 @@ with collections_tab:
 st.markdown(
     """
 <div class="footer-box">
-    NEXUS API • Discovery • Testing • Code Generator • Compare • History • Collections
+    NEXUS API • Discovery • Testing • JSON Toolkit • Health • Compare • Collections
     <br><br>
     Describe your idea. Discover the API. Build the project.
 </div>
